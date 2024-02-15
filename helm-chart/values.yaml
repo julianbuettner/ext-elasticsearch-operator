@@ -5,10 +5,10 @@
 replicaCount: 1
 
 image:
-  repository: localhost/eeo
+  repository: julianbuettner1/ext-elasticsearch-operator
   pullPolicy: Never
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "latest"
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
