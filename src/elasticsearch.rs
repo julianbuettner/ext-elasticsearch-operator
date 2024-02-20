@@ -133,9 +133,7 @@ impl ElasticAdmin {
                 res.text().await?
             )));
         }
-        println!("{}", res.text().await?);
-        todo!()
-        // Ok(res.json().await?)
+        Ok(res.json().await?)
     }
     pub async fn create_user(
         &self,
