@@ -67,16 +67,16 @@ impl ElasticAdmin {
         format!("{}{}", self.url, uri)
     }
     pub async fn get_self(&self) -> Result<User, ElasticError> {
-        let req = self
+        let res = self
             .client
             .get(self.format_url("/_security/_authenticate"))
-            .send();
+            .send()
+            .await?;
 
-        let res = req.await?;
         if res.status().as_u16() == 401 {
             return Err(ElasticError::WrongCredentials);
         }
-        Ok(res.json().await?)
+        Ok(res.json().await.expect("Self not serializable"))
     }
     pub async fn connection_ok(&self) -> Result<(), ElasticError> {
         let body = self.get_self().await?;
