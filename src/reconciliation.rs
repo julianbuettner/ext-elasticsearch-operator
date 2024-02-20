@@ -252,8 +252,9 @@ pub async fn delete_user(
     elastic: &ElasticAdmin,
 ) -> Result<(), OperatorError> {
     let username = &user.spec.username;
+    let role_name = format!("role-{}", username);
     elastic.delete_user(&username).await?;
-    elastic.delete_role(&username).await?;
+    elastic.delete_role(&role_name).await?;
     let secret_api: Api<Secret> = Api::default_namespaced(client.clone());
     secret_api
         .delete(user.spec.secret_ref.as_str(), &DeleteParams::default())
