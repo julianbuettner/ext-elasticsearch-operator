@@ -1,20 +1,17 @@
 use std::{
-    collections::{BTreeMap, HashMap},
-    str::from_utf8,
+    collections::{BTreeMap, HashMap}, str::from_utf8
 };
 
-use k8s_openapi::{
-    api::core::v1::Secret,
-    ByteString,
-};
+use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::{
-    api::{DeleteParams, PatchParams, PostParams}, Api, Client,
+    api::{DeleteParams, PatchParams, PostParams},
+    Api, Client,
 };
 use log::{debug, info};
 use passwords::PasswordGenerator;
 
 use crate::{
-    elasticsearch::{ElasticAdmin, IndexPermission, Role, User},
+    elasticsearch::{ ElasticAdmin, ElasticError, IndexPermission, Role, User},
     error::OperatorError,
     ElasticsearchUser, PASSWORD_LENGTH, SECRET_PASS, SECRET_URL, SECRET_USER,
 };
@@ -35,6 +32,17 @@ fn generate_password() -> String {
 
 fn parse_bytes(b: &[u8]) -> Option<&str> {
     from_utf8(b).ok()
+}
+
+pub enum ChangeDetails {
+    NothingToDo,
+    NewlyCreated,
+    Updated(&'static str),
+}
+
+pub struct UpdateDetails {
+    pub role: ChangeDetails,
+    pub user: ChangeDetails,
 }
 
 async fn ensure_secret_existance_and_correctness(
@@ -154,45 +162,88 @@ pub async fn ensure_user_exists(
     user: &ElasticsearchUser,
     client: &Client,
     elastic: &ElasticAdmin,
-) -> Result<(), OperatorError> {
+) -> Result<UpdateDetails, OperatorError> {
     let secret = ensure_secret_existance_and_correctness(user, client, elastic).await?;
     // No unwrap should fail here, by ensure_secret_existance_and_correctness
     let username = from_utf8(&secret.data.as_ref().unwrap().get(SECRET_USER).unwrap().0).unwrap();
     let password = from_utf8(&secret.data.as_ref().unwrap().get(SECRET_PASS).unwrap().0).unwrap();
     // let user_elastic = elastic.clone_with_new_login(username, password);
 
-    elastic
-        .create_role(
-            format!("role-{}", username),
-            Role {
-                indices: vec![IndexPermission {
-                    names: user
-                        .spec
-                        .prefixes
-                        .iter()
-                        .map(|pre| format!("{}*", pre))
-                        .collect(),
-                    privileges: user.spec.permissions.into(),
-                }],
-            },
-        )
-        .await?;
-    elastic
-        .create_user(
-            username,
-            &User {
-                password: Some(password.into()),
-                roles: vec![format!("role-{}", username)],
-                full_name: None,
-                email: None,
-                metadata: Some(HashMap::from([(
-                    "created-by".to_string(),
-                    "K8s Operator eeops".to_string(),
-                )])),
-            },
-        )
-        .await?;
-    Ok(())
+    let target_role = Role {
+        indices: vec![IndexPermission {
+            names: user
+                .spec
+                .prefixes
+                .iter()
+                .map(|pre| format!("{}*", pre))
+                .collect(),
+            privileges: user.spec.permissions.into(),
+        }],
+    };
+    let role_name = format!("role-{}", username);
+    let target_user = User {
+        password: Some(password.into()),
+        roles: vec![role_name.clone()],
+        full_name: None,
+        email: None,
+        metadata: Some(HashMap::from([(
+            "created-by".to_string(),
+            "K8s Operator eeops".to_string(),
+        )])),
+    };
+
+    let role_update;
+    match elastic.get_role(role_name.as_str()).await {
+        Err(ElasticError::RoleNotfound(_)) => {
+            elastic.create_role(role_name, &target_role).await?;
+            role_update = ChangeDetails::NewlyCreated;
+        }
+        Err(e) => {
+            Err(e)?;
+            unreachable!("Question mark on Err value");
+        }
+        Ok(role) if role == target_role => {
+            role_update = ChangeDetails::NothingToDo;
+        }
+        Ok(_) => {
+            elastic.create_role(role_name, &target_role).await?;
+            role_update = ChangeDetails::Updated("something");
+        }
+    }
+
+    let mut user_update;
+    match elastic.get_user(username).await {
+        Err(ElasticError::UserNotfound(_)) => {
+            elastic.create_user(username, &target_user).await?;
+            user_update = ChangeDetails::NewlyCreated;
+        }
+        Err(e) => {
+            Err(e)?;
+            unreachable!("Question mark on Err value");
+        }
+        Ok(role) if role == target_user => {
+            user_update = ChangeDetails::NothingToDo;
+        }
+        Ok(_) => {
+            elastic.create_user(username, &target_user).await?;
+            user_update = ChangeDetails::Updated("something");
+        }
+    }
+
+    let user_elastic = elastic.clone_with_new_login(username, password);
+    match user_elastic.get_self().await {
+        Err(ElasticError::WrongCredentials) => {
+            elastic.create_user(username, &target_user).await?;
+            user_update = ChangeDetails::Updated("password");
+        },
+        Ok(_) => (),
+        Err(e) => Err(e)?,
+    }
+
+    Ok(UpdateDetails {
+        role: role_update,
+        user: user_update,
+    })
 }
 
 pub async fn delete_user(
@@ -204,6 +255,8 @@ pub async fn delete_user(
     elastic.delete_user(&username).await?;
     elastic.delete_role(&username).await?;
     let secret_api: Api<Secret> = Api::default_namespaced(client.clone());
-    secret_api.delete(user.spec.secret_ref.as_str(), &DeleteParams::default()).await?;
+    secret_api
+        .delete(user.spec.secret_ref.as_str(), &DeleteParams::default())
+        .await?;
     Ok(())
 }

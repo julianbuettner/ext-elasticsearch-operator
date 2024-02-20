@@ -1,15 +1,14 @@
 mod error;
 mod role;
 mod user;
-use std::{fmt::Display, time::Duration};
+use std::{collections::HashMap, fmt::Display, time::Duration};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use log::{debug, warn};
+use log::debug;
 use reqwest::{
     header::{self, HeaderMap, HeaderValue},
     Client,
 };
-use serde::Deserialize;
 
 pub use error::ElasticError;
 pub use role::{IndexPermission, Privileges, Role};
@@ -24,8 +23,7 @@ pub struct ElasticAdmin {
 }
 
 fn username_password_to_basic(username: impl Display, password: impl Display) -> String {
-    let basic_auth_b64 =
-        STANDARD.encode(format!("{}:{}", username, password));
+    let basic_auth_b64 = STANDARD.encode(format!("{}:{}", username, password));
     format!("Basic {}", basic_auth_b64)
 }
 
@@ -68,7 +66,7 @@ impl ElasticAdmin {
     fn format_url(&self, uri: impl std::fmt::Display) -> String {
         format!("{}{}", self.url, uri)
     }
-    pub async fn connection_ok(&self) -> Result<(), ElasticError> {
+    pub async fn get_self(&self) -> Result<User, ElasticError> {
         let req = self
             .client
             .get(self.format_url("/_security/_authenticate"))
@@ -78,13 +76,10 @@ impl ElasticAdmin {
         if res.status().as_u16() == 401 {
             return Err(ElasticError::WrongCredentials);
         }
-
-        #[derive(Deserialize, Debug)]
-        struct UserDetails {
-            roles: Vec<String>,
-        }
-
-        let body: UserDetails = res.json().await?;
+        Ok(res.json().await?)
+    }
+    pub async fn connection_ok(&self) -> Result<(), ElasticError> {
+        let body = self.get_self().await?;
         if !body.roles.contains(&"superuser".into()) {
             return Err(ElasticError::NotSuperuser);
         }
@@ -94,7 +89,7 @@ impl ElasticAdmin {
     /// (identified by name), the permissions are
     /// overwritten. This way, we don't need a seperate
     /// put or patch.
-    pub async fn create_role(&self, name: impl Display, role: Role) -> Result<(), ElasticError> {
+    pub async fn create_role(&self, name: impl Display, role: &Role) -> Result<(), ElasticError> {
         let res = self
             .client
             .post(self.format_url(format!("/_security/role/{}", name)))
@@ -128,7 +123,19 @@ impl ElasticAdmin {
             .get(self.format_url(format!("/_security/role/{}", name)))
             .send()
             .await?;
-        Ok(res.json().await?)
+        if res.status().as_u16() == 404 {
+            return Err(ElasticError::RoleNotfound(format!("{}", name)));
+        }
+        if !res.status().is_success() {
+            return Err(ElasticError::Custom(format!(
+                "Error getting role {}: {}",
+                name,
+                res.text().await?
+            )));
+        }
+        println!("{}", res.text().await?);
+        todo!()
+        // Ok(res.json().await?)
     }
     pub async fn create_user(
         &self,
@@ -151,11 +158,10 @@ impl ElasticAdmin {
         }
         Ok(())
     }
-    pub async fn get_user(&self, username: impl Display, user: &User) -> Result<(), ElasticError> {
+    pub async fn get_user(&self, username: impl Display) -> Result<User, ElasticError> {
         let res = self
             .client
             .get(self.format_url(format!("/_security/user/{}", username)))
-            .json(user)
             .send()
             .await?;
         if res.status().as_u16() == 404 {
@@ -168,8 +174,11 @@ impl ElasticAdmin {
                 res.text().await?
             )));
         }
-        warn!("USER: {:?}", res.text().await?);
-        Ok(())
+        let mut user_map: HashMap<String, User> = res.json().await?;
+        let user = user_map
+            .remove(username.to_string().as_str())
+            .ok_or(ElasticError::UserNotfound(username.to_string()))?;
+        Ok(user)
     }
     pub async fn delete_user(&self, name: impl Display) -> Result<(), ElasticError> {
         let res = self
@@ -189,5 +198,4 @@ impl ElasticAdmin {
         }
         Ok(())
     }
-    
 }

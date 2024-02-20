@@ -281,17 +281,4 @@ async fn main() {
         }
         break;
     }
-    // Controller can't handle CR deletion??
-    // let context = Arc::new(elastic_admin);
-    // let config_maps: Api<ConfigMap> = Api::default_namespaced(client.clone());
-    // Controller::for_stream(watch)
-    //     // .owns(config_maps, watcher::Config::default())
-    //     .run(reconcile, error_policy, context)
-    //     .for_each(|res| async move {
-    //         match res {
-    //             Ok(o) => info!("Reconciled {:?}", o),
-    //             Err(e) => warn!("Error reconciling {:?}", e),
-    //         }
-    //     })
-    //     .await;
 }

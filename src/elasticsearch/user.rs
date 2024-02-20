@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug, Eq, PartialEq)]
 pub struct User {
     pub password: Option<String>,
     pub roles: Vec<String>,
