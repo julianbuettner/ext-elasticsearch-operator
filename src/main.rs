@@ -1,7 +1,7 @@
 #![deny(clippy::all)]
 use std::{
     process::exit,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use elasticsearch::ElasticAdmin;
@@ -126,19 +126,27 @@ async fn handle_user_event(
 ) -> Result<(), OperatorError> {
     match user {
         Event::Restarted(users) => {
+            let start = Instant::now();
             for user in &users {
                 ensure_user_exists(&user, client, elastic_admin).await?;
             }
-            debug!("Restarted, reconciled {} users successfully.", users.len());
+            debug!(
+                "Restartet, reconciled {} users successfully in {}ms.",
+                users.len(),
+                start.elapsed().as_millis()
+            );
         }
         Event::Applied(user) => {
+            let start = Instant::now();
             ensure_user_exists(&user, client, elastic_admin).await?;
             info!(
-                "Applied {}",
-                user.metadata.name.as_ref().unwrap_or(&"<no name>".into())
+                "Applied user {} in {}ms.",
+                user.metadata.name.as_ref().unwrap_or(&"<no name>".into()),
+                start.elapsed().as_millis(),
             );
         }
         Event::Deleted(user) => {
+            let start = Instant::now();
             let keep: bool = user
                 .metadata
                 .annotations
@@ -155,12 +163,13 @@ async fn handle_user_event(
             if !keep {
                 delete_user(&user, client, elastic_admin).await?;
                 info!(
-                    "Deleting {}",
-                    user.metadata.name.as_ref().unwrap_or(&"<no name>".into())
+                    "Deleted user {} with associated role in {}ms.",
+                    user.metadata.name.as_ref().unwrap_or(&"<no name>".into()),
+                    start.elapsed().as_millis()
                 );
             }
             info!(
-                "Skipped deletion of {}",
+                "Skipped deletion of user {}.",
                 user.metadata.name.as_ref().unwrap_or(&"<no name>".into())
             );
         }

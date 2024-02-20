@@ -171,4 +171,23 @@ impl ElasticAdmin {
         warn!("USER: {:?}", res.text().await?);
         Ok(())
     }
+    pub async fn delete_user(&self, name: impl Display) -> Result<(), ElasticError> {
+        let res = self
+            .client
+            .delete(self.format_url(format!("/_security/user/{}", name)))
+            .send()
+            .await?;
+        debug!("Status code of deleting user {}: {}", name, res.status());
+        if res.status().as_u16() == 404 {
+            return Err(ElasticError::UserNotfound(format!("{}", name)));
+        }
+        if !res.status().is_success() {
+            return Err(ElasticError::Custom(format!(
+                "Error deleting user: {}",
+                res.text().await?
+            )));
+        }
+        Ok(())
+    }
+    
 }

@@ -4,13 +4,12 @@ This operator automatically manages Elasticsearch roles and users
 for your applications running in Kubernetes.
 It does not manage the Elasticsearch cluster itself,
 but uses the API to provision resources.
-It is very lightweight. Scroll to [notes](#resources)
+The operator is rather lightweight. Scroll to [notes](#resources) for details.
 
 ## Installation of the Operator
 The operator is currently namespaced. Meaning the pod
-has to be in the same namespace as the target CRDs.  
+has to be in the same namespace as the target CRDs.
 This also means, one Elasticsearch instance per namespace.
-
 We well install the operator in the default namespace.
 
 
@@ -63,10 +62,9 @@ ELASTICSEARCH_USERNAME=as-specified-in-the-crd
 ## Notes and considerations
 ### Resources
 In idle, the operator uses around 2MiB to 3MiB and
-between 0 and 1 mCPU (1/1000 of one core).
-
+between 0 and 1 mCores (milli core).
 On load (values per second rather than per minute) these values
-are expected to go up.
+are expected to go up slighly.
 
 ### Performance
 Currently, all operations are performed sequentially.

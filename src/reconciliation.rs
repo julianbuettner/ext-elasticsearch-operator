@@ -4,13 +4,13 @@ use std::{
 };
 
 use k8s_openapi::{
-    api::core::v1::{Secret},
+    api::core::v1::Secret,
     ByteString,
 };
 use kube::{
-    api::{PatchParams, PostParams}, Api, Client,
+    api::{DeleteParams, PatchParams, PostParams}, Api, Client,
 };
-use log::{debug, info, warn};
+use log::{debug, info};
 use passwords::PasswordGenerator;
 
 use crate::{
@@ -196,10 +196,14 @@ pub async fn ensure_user_exists(
 }
 
 pub async fn delete_user(
-    _user: &ElasticsearchUser,
-    _client: &Client,
-    _elastic: &ElasticAdmin,
+    user: &ElasticsearchUser,
+    client: &Client,
+    elastic: &ElasticAdmin,
 ) -> Result<(), OperatorError> {
-    warn!("Deleting roles and users is currently not implemented.");
+    let username = &user.spec.username;
+    elastic.delete_user(&username).await?;
+    elastic.delete_role(&username).await?;
+    let secret_api: Api<Secret> = Api::default_namespaced(client.clone());
+    secret_api.delete(user.spec.secret_ref.as_str(), &DeleteParams::default()).await?;
     Ok(())
 }
