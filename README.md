@@ -4,7 +4,7 @@ This operator automatically manages Elasticsearch roles and users
 for your applications running in Kubernetes.
 It does not manage the Elasticsearch cluster itself,
 but uses the API to provision resources.
-
+It is very lightweight. Scroll to [notes](#resources)
 
 ## Installation of the Operator
 The operator is currently namespaced. Meaning the pod
@@ -32,7 +32,9 @@ data:
 type: Opaque
 EOF
 
-PACKAGE_URL="https://github.com/julianbuettner/ext-elasticsearch-operator/raw/main/helm-repo/ext-elasticsearch-operator-0.1.0.tgz"
+# Note: check directory for newer versions, I might have forgotten to update
+# the version in the URL.
+PACKAGE_URL="https://github.com/julianbuettner/ext-elasticsearch-operator/raw/main/helm-repo/ext-elasticsearch-operator-0.1.2.tgz"
 helm install eeops "$PACKAGE_URL" --set environmentVariablesSecretRef=eeops-env
 ```
 
@@ -58,4 +60,17 @@ ELASTICSEARCH_URL=as-specified-for-the-controller
 ELASTICSEARCH_USERNAME=as-specified-in-the-crd
 ```
 
+## Notes and considerations
+### Resources
+In idle, the operator uses around 2MiB to 3MiB and
+between 0 and 1 mCPU (1/1000 of one core).
+
+On load (values per second rather than per minute) these values
+are expected to go up.
+
+### Performance
+Currently, all operations are performed sequentially.
+If you expect to have many operations / CR updates
+per second for an extended period of time,
+please open an issue. Then I will invest time into performance.
 

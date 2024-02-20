@@ -129,7 +129,7 @@ async fn handle_user_event(
             for user in &users {
                 ensure_user_exists(&user, client, elastic_admin).await?;
             }
-            info!("Restarted, reconciled {} users.", users.len());
+            debug!("Restarted, reconciled {} users successfully.", users.len());
         }
         Event::Applied(user) => {
             ensure_user_exists(&user, client, elastic_admin).await?;

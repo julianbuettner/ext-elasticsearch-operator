@@ -15,6 +15,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 environmentVariablesSecretRef:
+loglevel: INFO
 
 serviceAccount:
   # Specifies whether a service account should be created
