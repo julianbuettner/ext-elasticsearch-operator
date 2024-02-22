@@ -1,7 +1,6 @@
 #![deny(clippy::all)]
 use std::{
-    process::exit,
-    time::{Duration, Instant, SystemTime},
+    process::exit, time::{Duration, Instant, SystemTime}
 };
 
 use elasticsearch::ElasticAdmin;
@@ -21,7 +20,7 @@ use kube::{
 };
 use kube_derive::CustomResource;
 use log::{debug, error, info, warn};
-use reconciliation::{delete_user, ensure_user_exists};
+use reconciliation::{delete_user, reconcile};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{select, time::sleep};
@@ -46,13 +45,35 @@ enum UserPermissions {
     Create,
 }
 
+// #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+// struct ElasticsearchUserStatus {
+//     pub status: String,
+//     pub msg: Option<String>,
+// }
+//
+// impl ElasticsearchUserStatus {
+//     pub fn ok() -> Self {
+//         Self {
+//             status: "OK".into(),
+//             msg: None,
+//         }
+//     }
+//     pub fn err(e: impl Display) -> Self {
+//         Self {
+//             status: "ERROR".into(),
+//             msg: Some(e.to_string()),
+//         }
+//     }
+// }
+//
 /// Annotate with "eeops.io/keep": "true" to keep elastic search users.
 #[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[kube(
     group = "eeops.io",
     version = "v1",
     kind = "ElasticsearchUser",
-    namespaced
+    namespaced,
+    // status = "ElasticsearchUserStatus",
 )]
 struct ElasticsearchUserSpec {
     secret_ref: String,
@@ -130,7 +151,8 @@ async fn handle_user_event(
         Event::Restarted(users) => {
             let start = Instant::now();
             for user in &users {
-                let details = ensure_user_exists(user, client, elastic_admin).await?;
+                let details = reconcile(user, client, elastic_admin).await;
+                let details = details?;
                 if !details.was_noop() {
                     info!(
                         "Routine reconciliation updated user {}: {}",
@@ -146,7 +168,7 @@ async fn handle_user_event(
         }
         Event::Applied(user) => {
             let start = Instant::now();
-            let details = ensure_user_exists(&user, client, elastic_admin).await?;
+            let details = reconcile(&user, client, elastic_admin).await?;
             info!(
                 "Applied user {} in {}ms: {}",
                 user.metadata.name.as_ref().unwrap_or(&"<no name>".into()),

@@ -4,6 +4,7 @@ use std::{
     str::from_utf8,
 };
 
+use anyhow::anyhow;
 use k8s_openapi::{api::core::v1::Secret, ByteString};
 use kube::{
     api::{DeleteParams, PatchParams, PostParams},
@@ -15,7 +16,8 @@ use passwords::PasswordGenerator;
 use crate::{
     elasticsearch::{ElasticAdmin, ElasticError, IndexPermission, Role, User},
     error::OperatorError,
-    ElasticsearchUser, PASSWORD_LENGTH, SECRET_PASS, SECRET_URL, SECRET_USER,
+    ElasticsearchUser, PASSWORD_LENGTH, SECRET_PASS, SECRET_URL,
+    SECRET_USER,
 };
 
 fn generate_password() -> String {
@@ -186,7 +188,46 @@ async fn ensure_secret_existance_and_correctness(
     Ok(secret)
 }
 
-pub async fn ensure_user_exists(
+pub async fn reconcile(
+    user: &ElasticsearchUser,
+    client: &Client,
+    elastic: &ElasticAdmin,
+) -> Result<UpdateDetails, OperatorError> {
+    let result = ensure_user_exists(user, client, elastic).await;
+    let api: Api<ElasticsearchUser> = Api::default_namespaced(client.clone());
+    match &result {
+        Ok(_) => {
+            api.patch_status(
+                user.metadata
+                    .name
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("CR without name"))?
+                    .trim_matches('"'),
+                &PatchParams::default(),
+                &kube::api::Patch::Merge(serde_json::json!({"status": "OK"})),
+            )
+            .await?;
+        }
+        Err(e) => {
+            api.patch_status(
+                &user
+                    .metadata
+                    .name
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("CR without name"))?
+                    .trim_matches('"'),
+                &PatchParams::default(),
+                &kube::api::Patch::Merge(
+                    serde_json::json!({"status": "Error", "msg": e.to_string()}),
+                ),
+            )
+            .await?;
+        }
+    }
+    result
+}
+
+async fn ensure_user_exists(
     user: &ElasticsearchUser,
     client: &Client,
     elastic: &ElasticAdmin,
