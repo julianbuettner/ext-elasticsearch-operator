@@ -33,7 +33,7 @@ EOF
 
 # Note: check directory for newer versions, I might have forgotten to update
 # the version in the URL.
-PACKAGE_URL="https://github.com/julianbuettner/ext-elasticsearch-operator/raw/main/helm-repo/ext-elasticsearch-operator-1.0.0.tgz"
+PACKAGE_URL="https://github.com/julianbuettner/ext-elasticsearch-operator/raw/main/helm-repo/ext-elasticsearch-operator-1.0.3.tgz"
 helm install eeops "$PACKAGE_URL" --set environmentVariablesSecretRef=eeops-env
 ```
 

@@ -193,38 +193,30 @@ pub async fn ensure_user_exists(
     };
 
     let role_update;
-    match elastic.get_role(role_name.as_str()).await {
-        Err(ElasticError::RoleNotfound(_)) => {
+    match elastic.get_role(role_name.as_str()).await? {
+        None => {
             elastic.create_role(role_name, &target_role).await?;
             role_update = ChangeDetails::NewlyCreated;
         }
-        Err(e) => {
-            Err(e)?;
-            unreachable!("Question mark on Err value");
-        }
-        Ok(role) if role == target_role => {
+        Some(role) if role == target_role => {
             role_update = ChangeDetails::NothingToDo;
         }
-        Ok(_) => {
+        Some(_) => {
             elastic.create_role(role_name, &target_role).await?;
             role_update = ChangeDetails::Updated("something");
         }
     }
 
     let mut user_update;
-    match elastic.get_user(username).await {
-        Err(ElasticError::UserNotfound(_)) => {
+    match elastic.get_user(username).await? {
+        None => {
             elastic.create_user(username, &target_user).await?;
             user_update = ChangeDetails::NewlyCreated;
         }
-        Err(e) => {
-            Err(e)?;
-            unreachable!("Question mark on Err value");
-        }
-        Ok(role) if role == target_user => {
+        Some(role) if role == target_user => {
             user_update = ChangeDetails::NothingToDo;
         }
-        Ok(_) => {
+        Some(_) => {
             elastic.create_user(username, &target_user).await?;
             user_update = ChangeDetails::Updated("something");
         }

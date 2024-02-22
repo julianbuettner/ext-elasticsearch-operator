@@ -24,7 +24,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{select, time::sleep};
 
-use crate::env::load_env;
+use crate::{
+    elasticsearch::{IndexPermission, Privileges, Role},
+    env::load_env,
+};
 pub mod elasticsearch;
 mod env;
 mod error;

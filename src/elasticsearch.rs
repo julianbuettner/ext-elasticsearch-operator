@@ -99,7 +99,7 @@ impl ElasticAdmin {
         debug!("Status code creating role {}: {}", name, res.status());
         Ok(())
     }
-    pub async fn delete_role(&self, name: impl Display) -> Result<(), ElasticError> {
+    pub async fn delete_role(&self, name: impl Display) -> Result<bool, ElasticError> {
         let res = self
             .client
             .delete(self.format_url(format!("/_security/role/{}", name)))
@@ -107,7 +107,7 @@ impl ElasticAdmin {
             .await?;
         debug!("Status code of deleting role {}: {}", name, res.status());
         if res.status().as_u16() == 404 {
-            return Err(ElasticError::RoleNotfound(format!("{}", name)));
+            return Ok(false)
         }
         if !res.status().is_success() {
             return Err(ElasticError::Custom(format!(
@@ -115,16 +115,16 @@ impl ElasticAdmin {
                 res.text().await?
             )));
         }
-        Ok(())
+        Ok(true)
     }
-    pub async fn get_role(&self, name: impl Display) -> Result<Role, ElasticError> {
+    pub async fn get_role(&self, name: impl Display) -> Result<Option<Role>, ElasticError> {
         let res = self
             .client
             .get(self.format_url(format!("/_security/role/{}", name)))
             .send()
             .await?;
         if res.status().as_u16() == 404 {
-            return Err(ElasticError::RoleNotfound(format!("{}", name)));
+            return Ok(None);
         }
         if !res.status().is_success() {
             return Err(ElasticError::Custom(format!(
@@ -133,7 +133,15 @@ impl ElasticAdmin {
                 res.text().await?
             )));
         }
-        Ok(res.json().await?)
+        let mut role_map: HashMap<String, Role> = res.json().await?;
+        let role = role_map
+            .remove(name.to_string().as_str())
+            .ok_or(ElasticError::Custom(format!(
+                "Unexpected response: Got role {} \
+                successfully, but response did not contain role.",
+                name,
+            )))?;
+        Ok(Some(role))
     }
     pub async fn create_user(
         &self,
@@ -156,14 +164,14 @@ impl ElasticAdmin {
         }
         Ok(())
     }
-    pub async fn get_user(&self, username: impl Display) -> Result<User, ElasticError> {
+    pub async fn get_user(&self, username: impl Display) -> Result<Option<User>, ElasticError> {
         let res = self
             .client
             .get(self.format_url(format!("/_security/user/{}", username)))
             .send()
             .await?;
         if res.status().as_u16() == 404 {
-            return Err(ElasticError::UserNotfound(username.to_string()));
+            return Ok(None);
         }
         if !res.status().is_success() {
             return Err(ElasticError::Custom(format!(
@@ -175,10 +183,14 @@ impl ElasticAdmin {
         let mut user_map: HashMap<String, User> = res.json().await?;
         let user = user_map
             .remove(username.to_string().as_str())
-            .ok_or(ElasticError::UserNotfound(username.to_string()))?;
-        Ok(user)
+            .ok_or(ElasticError::Custom(format!(
+                "Unexpected response: Got user {} \
+                successfully, but response did not contain user.",
+                username,
+            )))?;
+        Ok(Some(user))
     }
-    pub async fn delete_user(&self, name: impl Display) -> Result<(), ElasticError> {
+    pub async fn delete_user(&self, name: impl Display) -> Result<bool, ElasticError> {
         let res = self
             .client
             .delete(self.format_url(format!("/_security/user/{}", name)))
@@ -186,7 +198,7 @@ impl ElasticAdmin {
             .await?;
         debug!("Status code of deleting user {}: {}", name, res.status());
         if res.status().as_u16() == 404 {
-            return Err(ElasticError::UserNotfound(format!("{}", name)));
+            return Ok(false);
         }
         if !res.status().is_success() {
             return Err(ElasticError::Custom(format!(
@@ -194,6 +206,6 @@ impl ElasticAdmin {
                 res.text().await?
             )));
         }
-        Ok(())
+        Ok(true)
     }
 }
