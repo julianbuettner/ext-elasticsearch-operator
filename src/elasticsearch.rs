@@ -3,6 +3,7 @@ mod role;
 mod user;
 use std::{collections::HashMap, fmt::Display, time::Duration};
 
+use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use log::debug;
 use reqwest::{
@@ -89,7 +90,7 @@ impl ElasticAdmin {
     /// (identified by name), the permissions are
     /// overwritten. This way, we don't need a seperate
     /// put or patch.
-    pub async fn create_role(&self, name: impl Display, role: &Role) -> Result<(), ElasticError> {
+    pub async fn create_role(&self, name: impl Display, role: &Role) -> Result<()> {
         let res = self
             .client
             .post(self.format_url(format!("/_security/role/{}", name)))
@@ -99,7 +100,7 @@ impl ElasticAdmin {
         debug!("Status code creating role {}: {}", name, res.status());
         Ok(())
     }
-    pub async fn delete_role(&self, name: impl Display) -> Result<bool, ElasticError> {
+    pub async fn delete_role(&self, name: impl Display) -> Result<bool> {
         let res = self
             .client
             .delete(self.format_url(format!("/_security/role/{}", name)))
@@ -107,17 +108,20 @@ impl ElasticAdmin {
             .await?;
         debug!("Status code of deleting role {}: {}", name, res.status());
         if res.status().as_u16() == 404 {
-            return Ok(false)
+            return Ok(false);
         }
         if !res.status().is_success() {
             return Err(ElasticError::Custom(format!(
                 "Error deleting role: {}",
-                res.text().await?
-            )));
+                res.text()
+                    .await
+                    .context("Failed to read body of failed delete role request.")?
+            ))
+            .into());
         }
         Ok(true)
     }
-    pub async fn get_role(&self, name: impl Display) -> Result<Option<Role>, ElasticError> {
+    pub async fn get_role(&self, name: impl Display) -> Result<Option<Role>> {
         let res = self
             .client
             .get(self.format_url(format!("/_security/role/{}", name)))
@@ -131,9 +135,12 @@ impl ElasticAdmin {
                 "Error getting role {}: {}",
                 name,
                 res.text().await?
-            )));
+            ))
+            .into());
         }
-        let mut role_map: HashMap<String, Role> = res.json().await?;
+        let body = res.text().await?;
+        let mut role_map: HashMap<String, Role> = serde_json::from_str(body.as_str())
+            .context(format!("Failed to parse role into role map format: {}", body))?;
         let role = role_map
             .remove(name.to_string().as_str())
             .ok_or(ElasticError::Custom(format!(
@@ -143,11 +150,7 @@ impl ElasticAdmin {
             )))?;
         Ok(Some(role))
     }
-    pub async fn create_user(
-        &self,
-        username: impl Display,
-        user: &User,
-    ) -> Result<(), ElasticError> {
+    pub async fn create_user(&self, username: impl Display, user: &User) -> Result<()> {
         let res = self
             .client
             .post(self.format_url(format!("/_security/user/{}", username)))
@@ -160,11 +163,12 @@ impl ElasticAdmin {
                 "Error creating user {}: {}",
                 username,
                 res.text().await?
-            )));
+            ))
+            .into());
         }
         Ok(())
     }
-    pub async fn get_user(&self, username: impl Display) -> Result<Option<User>, ElasticError> {
+    pub async fn get_user(&self, username: impl Display) -> Result<Option<User>> {
         let res = self
             .client
             .get(self.format_url(format!("/_security/user/{}", username)))
@@ -178,9 +182,12 @@ impl ElasticAdmin {
                 "Error getting user {}: {}",
                 username,
                 res.text().await?
-            )));
+            ))
+            .into());
         }
-        let mut user_map: HashMap<String, User> = res.json().await?;
+        let body = res.text().await?;
+        let mut user_map: HashMap<String, User> = serde_json::from_str(body.as_str())
+            .context(format!("Failed to parse user into user map format: {}", body))?;
         let user = user_map
             .remove(username.to_string().as_str())
             .ok_or(ElasticError::Custom(format!(
@@ -190,7 +197,7 @@ impl ElasticAdmin {
             )))?;
         Ok(Some(user))
     }
-    pub async fn delete_user(&self, name: impl Display) -> Result<bool, ElasticError> {
+    pub async fn delete_user(&self, name: impl Display) -> Result<bool> {
         let res = self
             .client
             .delete(self.format_url(format!("/_security/user/{}", name)))
@@ -204,7 +211,8 @@ impl ElasticAdmin {
             return Err(ElasticError::Custom(format!(
                 "Error deleting user: {}",
                 res.text().await?
-            )));
+            ))
+            .into());
         }
         Ok(true)
     }

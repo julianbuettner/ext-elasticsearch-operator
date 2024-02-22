@@ -8,7 +8,9 @@ use elasticsearch::ElasticAdmin;
 use env::as_bool;
 use error::OperatorError;
 use futures::TryStreamExt;
-use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
+use k8s_openapi::{
+    apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition, 
+};
 use kube::{
     api::{PatchParams, PostParams},
     runtime::{
@@ -24,10 +26,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{select, time::sleep};
 
-use crate::{
-    elasticsearch::{IndexPermission, Privileges, Role},
-    env::load_env,
-};
+use crate::env::load_env;
 pub mod elasticsearch;
 mod env;
 mod error;
@@ -131,7 +130,13 @@ async fn handle_user_event(
         Event::Restarted(users) => {
             let start = Instant::now();
             for user in &users {
-                ensure_user_exists(&user, client, elastic_admin).await?;
+                let details = ensure_user_exists(user, client, elastic_admin).await?;
+                if !details.was_noop() {
+                    info!(
+                        "Routine reconciliation updated user {}: {}",
+                        user.spec.username, details
+                    );
+                }
             }
             debug!(
                 "Restartet, reconciled {} users successfully in {}ms.",
@@ -141,11 +146,12 @@ async fn handle_user_event(
         }
         Event::Applied(user) => {
             let start = Instant::now();
-            ensure_user_exists(&user, client, elastic_admin).await?;
+            let details = ensure_user_exists(&user, client, elastic_admin).await?;
             info!(
-                "Applied user {} in {}ms.",
+                "Applied user {} in {}ms: {}",
                 user.metadata.name.as_ref().unwrap_or(&"<no name>".into()),
                 start.elapsed().as_millis(),
+                details,
             );
         }
         Event::Deleted(user) => {
@@ -170,11 +176,12 @@ async fn handle_user_event(
                     user.metadata.name.as_ref().unwrap_or(&"<no name>".into()),
                     start.elapsed().as_millis()
                 );
+            } else {
+                info!(
+                    "Skipped deletion of user {}.",
+                    user.metadata.name.as_ref().unwrap_or(&"<no name>".into())
+                );
             }
-            info!(
-                "Skipped deletion of user {}.",
-                user.metadata.name.as_ref().unwrap_or(&"<no name>".into())
-            );
         }
     }
     Ok(())
@@ -238,13 +245,13 @@ async fn main() {
     }
 
     // Start wating ElasticsearchUser CRDs
+    info!("Waiting for events...");
     loop {
         let elastic_users: Api<ElasticsearchUser> = Api::default_namespaced(client.clone());
         let watch = runtime::watcher(elastic_users, runtime::watcher::Config::default())
             .try_for_each(|user_event| async {
-                let username = 0;
                 if let Err(e) = handle_user_event(user_event, &client, &elastic_admin).await {
-                    error!("Error while reconciling user {}: {}", username, e);
+                    error!("Error while reconciling: {}", e);
                 } else {
                     debug!("The reconciliation of was successfull.");
                 }

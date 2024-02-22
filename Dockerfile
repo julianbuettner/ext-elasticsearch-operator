@@ -1,10 +1,16 @@
-FROM rust:1.76 AS builder
+FROM docker.io/rust:1.76 AS builder
 
 WORKDIR /app
-COPY src ./src
+
+# Dependency build cache layer
+RUN cargo init --lib --vcs none
 COPY Cargo.toml .
 COPY Cargo.lock .
+RUN cargo build --release --lib
 
+# Actual building
+RUN rm -rf src
+COPY src ./src
 RUN cargo build --release
 
 FROM debian:stable-slim

@@ -1,5 +1,7 @@
 use std::{
-    collections::{BTreeMap, HashMap}, str::from_utf8
+    collections::{BTreeMap, HashMap},
+    fmt::Display,
+    str::from_utf8,
 };
 
 use k8s_openapi::{api::core::v1::Secret, ByteString};
@@ -11,7 +13,7 @@ use log::{debug, info};
 use passwords::PasswordGenerator;
 
 use crate::{
-    elasticsearch::{ ElasticAdmin, ElasticError, IndexPermission, Role, User},
+    elasticsearch::{ElasticAdmin, ElasticError, IndexPermission, Role, User},
     error::OperatorError,
     ElasticsearchUser, PASSWORD_LENGTH, SECRET_PASS, SECRET_URL, SECRET_USER,
 };
@@ -43,6 +45,32 @@ pub enum ChangeDetails {
 pub struct UpdateDetails {
     pub role: ChangeDetails,
     pub user: ChangeDetails,
+}
+
+impl Display for UpdateDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.role {
+            ChangeDetails::NothingToDo => write!(f, "Role was already configured correctly")?,
+            ChangeDetails::NewlyCreated => write!(f, "Role has been newly created")?,
+            ChangeDetails::Updated(msg) => write!(f, "Role has been updated ({})", msg)?,
+        }
+        write!(f, ", ")?;
+        match self.user {
+            ChangeDetails::NothingToDo => write!(f, "User was already configured correctly")?,
+            ChangeDetails::NewlyCreated => write!(f, "User has been newly created")?,
+            ChangeDetails::Updated(msg) => write!(f, "User has been updated ({})", msg)?,
+        }
+        Ok(())
+    }
+}
+
+impl UpdateDetails {
+    pub fn was_noop(&self) -> bool {
+        matches!(
+            (&self.role, &self.user),
+            (&ChangeDetails::NothingToDo, &ChangeDetails::NothingToDo)
+        )
+    }
 }
 
 async fn ensure_secret_existance_and_correctness(
@@ -192,42 +220,36 @@ pub async fn ensure_user_exists(
         )])),
     };
 
-    let role_update;
-    match elastic.get_role(role_name.as_str()).await? {
+    let role_update = match elastic.get_role(role_name.as_str()).await? {
         None => {
             elastic.create_role(role_name, &target_role).await?;
-            role_update = ChangeDetails::NewlyCreated;
+            ChangeDetails::NewlyCreated
         }
-        Some(role) if role == target_role => {
-            role_update = ChangeDetails::NothingToDo;
-        }
+        Some(role) if role == target_role => ChangeDetails::NothingToDo,
         Some(_) => {
             elastic.create_role(role_name, &target_role).await?;
-            role_update = ChangeDetails::Updated("something");
+            ChangeDetails::Updated("attributes")
         }
-    }
+    };
 
-    let mut user_update;
-    match elastic.get_user(username).await? {
+    let mut user_update = match elastic.get_user(username).await? {
         None => {
             elastic.create_user(username, &target_user).await?;
-            user_update = ChangeDetails::NewlyCreated;
+            ChangeDetails::NewlyCreated
         }
-        Some(role) if role == target_user => {
-            user_update = ChangeDetails::NothingToDo;
-        }
+        Some(role) if role == target_user => ChangeDetails::NothingToDo,
         Some(_) => {
             elastic.create_user(username, &target_user).await?;
-            user_update = ChangeDetails::Updated("something");
+            ChangeDetails::Updated("attributes")
         }
-    }
+    };
 
     let user_elastic = elastic.clone_with_new_login(username, password);
     match user_elastic.get_self().await {
         Err(ElasticError::WrongCredentials) => {
             elastic.create_user(username, &target_user).await?;
             user_update = ChangeDetails::Updated("password");
-        },
+        }
         Ok(_) => (),
         Err(e) => Err(e)?,
     }

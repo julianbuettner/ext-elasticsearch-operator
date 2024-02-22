@@ -81,19 +81,14 @@ impl Serialize for Privileges {
     }
 }
 
-#[derive(Deserialize)]
-struct FakePermissions {
-    identifiers: Vec<String>,
-}
-
 impl<'de> Deserialize<'de> for Privileges {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let fake_permissions: FakePermissions = FakePermissions::deserialize(deserializer)?;
+        let permission_array: Vec<String> = Vec::<String>::deserialize(deserializer)?;
         let mut permissions = Privileges::new();
-        for p in fake_permissions.identifiers {
+        for p in permission_array {
             match p.as_str() {
                 "read" => permissions.read = true,
                 "write" => permissions.write = true,
@@ -101,7 +96,7 @@ impl<'de> Deserialize<'de> for Privileges {
                 other => {
                     return Err(serde::de::Error::invalid_value(
                         serde::de::Unexpected::Str(other),
-                        &"read, write or create",
+                        &"Permissions must be read, write or create",
                     ))
                 }
             }
