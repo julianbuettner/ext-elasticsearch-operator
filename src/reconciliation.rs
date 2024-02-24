@@ -1,14 +1,12 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::Display,
     str::from_utf8,
 };
 
-use anyhow::anyhow;
-use k8s_openapi::{api::core::v1::Secret, ByteString};
+use k8s_openapi::{api::core::v1::Secret, apimachinery::pkg::apis::meta::v1::OwnerReference, ByteString};
 use kube::{
-    api::{DeleteParams, PatchParams, PostParams},
-    Api, Client,
+    api::{PatchParams, PostParams},
+    Api, Client, ResourceExt,
 };
 use log::{debug, info};
 use passwords::PasswordGenerator;
@@ -16,8 +14,7 @@ use passwords::PasswordGenerator;
 use crate::{
     elasticsearch::{ElasticAdmin, ElasticError, IndexPermission, Role, User},
     error::OperatorError,
-    ElasticsearchUser, PASSWORD_LENGTH, SECRET_PASS, SECRET_URL,
-    SECRET_USER,
+    ElasticsearchUser, PASSWORD_LENGTH, SECRET_PASS, SECRET_URL, SECRET_USER,
 };
 
 fn generate_password() -> String {
@@ -38,43 +35,6 @@ fn parse_bytes(b: &[u8]) -> Option<&str> {
     from_utf8(b).ok()
 }
 
-pub enum ChangeDetails {
-    NothingToDo,
-    NewlyCreated,
-    Updated(&'static str),
-}
-
-pub struct UpdateDetails {
-    pub role: ChangeDetails,
-    pub user: ChangeDetails,
-}
-
-impl Display for UpdateDetails {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.role {
-            ChangeDetails::NothingToDo => write!(f, "Role was already configured correctly")?,
-            ChangeDetails::NewlyCreated => write!(f, "Role has been newly created")?,
-            ChangeDetails::Updated(msg) => write!(f, "Role has been updated ({})", msg)?,
-        }
-        write!(f, ", ")?;
-        match self.user {
-            ChangeDetails::NothingToDo => write!(f, "User was already configured correctly")?,
-            ChangeDetails::NewlyCreated => write!(f, "User has been newly created")?,
-            ChangeDetails::Updated(msg) => write!(f, "User has been updated ({})", msg)?,
-        }
-        Ok(())
-    }
-}
-
-impl UpdateDetails {
-    pub fn was_noop(&self) -> bool {
-        matches!(
-            (&self.role, &self.user),
-            (&ChangeDetails::NothingToDo, &ChangeDetails::NothingToDo)
-        )
-    }
-}
-
 async fn ensure_secret_existance_and_correctness(
     user: &ElasticsearchUser,
     client: &Client,
@@ -82,12 +42,21 @@ async fn ensure_secret_existance_and_correctness(
 ) -> Result<Secret, OperatorError> {
     // TODO user secret.string_data
     let secret_api: Api<Secret> = Api::default_namespaced(client.clone());
+    let ownership = OwnerReference {
+        api_version: "eeops.io/v1".into(),
+        name: user.name_any(),
+        uid: user.uid().unwrap_or("".into()),
+        kind: "ElasticsearchUser".into(),
+        controller: None,
+        block_owner_deletion: None,
+    };
     let secret = match secret_api.get(&user.spec.secret_ref).await {
         Err(kube::Error::Api(err)) if err.code == 404 => {
             // TODO Set ownership of secret
             let mut secret = Secret::default();
             debug!("Secret {} does not exist, create.", user.spec.secret_ref);
             secret.metadata.name = Some(user.spec.secret_ref.clone());
+            *secret.owner_references_mut() = vec![ownership];
             secret.data = Some(BTreeMap::from([
                 (
                     SECRET_USER.to_string(),
@@ -112,6 +81,7 @@ async fn ensure_secret_existance_and_correctness(
                 secret.data = Some(BTreeMap::new());
                 value_changed = true;
             }
+            *secret.owner_references_mut() = vec![ownership];
             if secret.data.as_ref().unwrap().get(SECRET_URL)
                 != Some(&ByteString(elastic.url.clone().into_bytes()))
             {
@@ -188,50 +158,11 @@ async fn ensure_secret_existance_and_correctness(
     Ok(secret)
 }
 
-pub async fn reconcile(
+pub async fn apply_user(
     user: &ElasticsearchUser,
     client: &Client,
     elastic: &ElasticAdmin,
-) -> Result<UpdateDetails, OperatorError> {
-    let result = ensure_user_exists(user, client, elastic).await;
-    let api: Api<ElasticsearchUser> = Api::default_namespaced(client.clone());
-    match &result {
-        Ok(_) => {
-            api.patch_status(
-                user.metadata
-                    .name
-                    .as_ref()
-                    .ok_or_else(|| anyhow!("CR without name"))?
-                    .trim_matches('"'),
-                &PatchParams::default(),
-                &kube::api::Patch::Merge(serde_json::json!({"status": "OK"})),
-            )
-            .await?;
-        }
-        Err(e) => {
-            api.patch_status(
-                &user
-                    .metadata
-                    .name
-                    .as_ref()
-                    .ok_or_else(|| anyhow!("CR without name"))?
-                    .trim_matches('"'),
-                &PatchParams::default(),
-                &kube::api::Patch::Merge(
-                    serde_json::json!({"status": "Error", "msg": e.to_string()}),
-                ),
-            )
-            .await?;
-        }
-    }
-    result
-}
-
-async fn ensure_user_exists(
-    user: &ElasticsearchUser,
-    client: &Client,
-    elastic: &ElasticAdmin,
-) -> Result<UpdateDetails, OperatorError> {
+) -> Result<(), OperatorError> {
     let secret = ensure_secret_existance_and_correctness(user, client, elastic).await?;
     // No unwrap should fail here, by ensure_secret_existance_and_correctness
     let username = from_utf8(&secret.data.as_ref().unwrap().get(SECRET_USER).unwrap().0).unwrap();
@@ -261,58 +192,58 @@ async fn ensure_user_exists(
         )])),
     };
 
-    let role_update = match elastic.get_role(role_name.as_str()).await? {
+    match elastic.get_role(role_name.as_str()).await? {
         None => {
+            info!("Created role {} {}", role_name, target_role);
             elastic.create_role(role_name, &target_role).await?;
-            ChangeDetails::NewlyCreated
         }
-        Some(role) if role == target_role => ChangeDetails::NothingToDo,
-        Some(_) => {
+        Some(role) if role == target_role => (),
+        Some(old) => {
+            info!("Update role {} from {} to {}", role_name, old, target_role);
             elastic.create_role(role_name, &target_role).await?;
-            ChangeDetails::Updated("attributes")
         }
     };
 
-    let mut user_update = match elastic.get_user(username).await? {
+    match elastic.get_user(username).await? {
         None => {
+            info!("Create user {}", username);
             elastic.create_user(username, &target_user).await?;
-            ChangeDetails::NewlyCreated
         }
-        Some(role) if role == target_user => ChangeDetails::NothingToDo,
-        Some(_) => {
-            elastic.create_user(username, &target_user).await?;
-            ChangeDetails::Updated("attributes")
-        }
+        Some(old_user) => match target_user.delta_string(&old_user) {
+            None => (),
+            Some(description) => {
+                info!(
+                    "Update user {}: {}",
+                    username,
+                    description,
+                );
+                elastic.create_user(username, &target_user).await?;
+            }
+        },
     };
 
     let user_elastic = elastic.clone_with_new_login(username, password);
     match user_elastic.get_self().await {
         Err(ElasticError::WrongCredentials) => {
             elastic.create_user(username, &target_user).await?;
-            user_update = ChangeDetails::Updated("password");
         }
         Ok(_) => (),
         Err(e) => Err(e)?,
     }
 
-    Ok(UpdateDetails {
-        role: role_update,
-        user: user_update,
-    })
+    Ok(())
 }
 
-pub async fn delete_user(
+pub async fn cleanup_user(
     user: &ElasticsearchUser,
-    client: &Client,
+    _client: &Client,
     elastic: &ElasticAdmin,
 ) -> Result<(), OperatorError> {
     let username = &user.spec.username;
     let role_name = format!("role-{}", username);
     elastic.delete_user(&username).await?;
     elastic.delete_role(&role_name).await?;
-    let secret_api: Api<Secret> = Api::default_namespaced(client.clone());
-    secret_api
-        .delete(user.spec.secret_ref.as_str(), &DeleteParams::default())
-        .await?;
+    // Secret gets deleted automatically due to correctly set
+    // ownership
     Ok(())
 }

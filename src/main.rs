@@ -1,31 +1,32 @@
 #![deny(clippy::all)]
 use std::{
-    process::exit, time::{Duration, Instant, SystemTime}
+    process::exit,
+    sync::Arc,
+    time::{Duration, SystemTime},
 };
 
 use elasticsearch::ElasticAdmin;
-use env::as_bool;
 use error::OperatorError;
-use futures::TryStreamExt;
-use k8s_openapi::{
-    apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition, 
-};
+use futures_util::StreamExt;
+use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
     api::{PatchParams, PostParams},
     runtime::{
-        self,
-        watcher::{self, Event},
+        controller::Action,
+        finalizer::{self, Event},
+        watcher, Controller,
     },
-    Api, Client, CustomResourceExt,
+    Api, Client, CustomResourceExt, ResourceExt,
 };
 use kube_derive::CustomResource;
 use log::{debug, error, info, warn};
-use reconciliation::{delete_user, reconcile};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tokio::{select, time::sleep};
 
-use crate::env::load_env;
+use crate::{
+    env::load_env,
+    reconciliation::{cleanup_user, apply_user},
+};
 pub mod elasticsearch;
 mod env;
 mod error;
@@ -36,7 +37,7 @@ pub const PASSWORD_LENGTH: usize = 24;
 pub const SECRET_USER: &str = "ELASTICSEARCH_USERNAME";
 pub const SECRET_PASS: &str = "ELASTICSEARCH_PASSWORD";
 pub const SECRET_URL: &str = "ELASTICSEARCH_URL";
-pub const RESTART_SECONDS: u64 = 900; // reconcile everything every 15min
+pub const REQUEUE_SECONDS: u64 = 900; // reconcile everything every 15min
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, JsonSchema)]
 enum UserPermissions {
@@ -45,36 +46,16 @@ enum UserPermissions {
     Create,
 }
 
-// #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
-// struct ElasticsearchUserStatus {
-//     pub status: String,
-//     pub msg: Option<String>,
-// }
-//
-// impl ElasticsearchUserStatus {
-//     pub fn ok() -> Self {
-//         Self {
-//             status: "OK".into(),
-//             msg: None,
-//         }
-//     }
-//     pub fn err(e: impl Display) -> Self {
-//         Self {
-//             status: "ERROR".into(),
-//             msg: Some(e.to_string()),
-//         }
-//     }
-// }
-//
 /// Annotate with "eeops.io/keep": "true" to keep elastic search users.
 #[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[kube(
     group = "eeops.io",
     version = "v1",
     kind = "ElasticsearchUser",
-    namespaced,
-    // status = "ElasticsearchUserStatus",
+    namespaced
 )]
+#[kube(status = "ElasticSearchUserStatus")]
+#[serde(rename_all = "camelCase")]
 struct ElasticsearchUserSpec {
     secret_ref: String,
     username: String,
@@ -82,11 +63,26 @@ struct ElasticsearchUserSpec {
     permissions: UserPermissions,
 }
 
-/// Status object for Foo
 #[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
-pub struct ElasticSearchUserSpec {
+#[serde(rename_all = "camelCase")]
+pub struct ElasticSearchUserStatus {
     ok: bool,
     error_message: Option<String>,
+}
+
+impl ElasticSearchUserStatus {
+    pub fn ok() -> Self {
+        Self {
+            ok: true,
+            error_message: None,
+        }
+    }
+    pub fn err(msg: impl ToString) -> Self {
+        Self {
+            ok: false,
+            error_message: Some(msg.to_string()),
+        }
+    }
 }
 
 fn get_log_level() -> Result<log::LevelFilter, String> {
@@ -142,71 +138,50 @@ async fn load_elastic_search() -> ElasticAdmin {
     el
 }
 
-async fn handle_user_event(
-    user: Event<ElasticsearchUser>,
-    client: &Client,
-    elastic_admin: &ElasticAdmin,
-) -> Result<(), OperatorError> {
-    match user {
-        Event::Restarted(users) => {
-            let start = Instant::now();
-            for user in &users {
-                let details = reconcile(user, client, elastic_admin).await;
-                let details = details?;
-                if !details.was_noop() {
-                    info!(
-                        "Routine reconciliation updated user {}: {}",
-                        user.spec.username, details
-                    );
+pub struct Context {
+    pub client: Client,
+    pub elastic: ElasticAdmin,
+}
+
+async fn reconcile(
+    user: Arc<ElasticsearchUser>,
+    context: Arc<Context>,
+) -> Result<Action, finalizer::Error<OperatorError>> {
+    let api: Api<ElasticsearchUser> = Api::default_namespaced(context.client.clone());
+
+    let rec = |event: Event<ElasticsearchUser>| async {
+        let api: Api<ElasticsearchUser> = Api::default_namespaced(context.client.clone());
+
+        match event {
+            Event::Cleanup(user) => cleanup_user(&user, &context.client, &context.elastic).await?,
+            Event::Apply(user) => {
+                let result = apply_user(&user, &context.client, &context.elastic).await;
+                let mut user = (*user).clone();
+                match result {
+                    Ok(_) => user.status = Some(ElasticSearchUserStatus::ok()),
+                    Err(e) => user.status = Some(ElasticSearchUserStatus::err(e)),
                 }
-            }
-            debug!(
-                "Restartet, reconciled {} users successfully in {}ms.",
-                users.len(),
-                start.elapsed().as_millis()
-            );
-        }
-        Event::Applied(user) => {
-            let start = Instant::now();
-            let details = reconcile(&user, client, elastic_admin).await?;
-            info!(
-                "Applied user {} in {}ms: {}",
-                user.metadata.name.as_ref().unwrap_or(&"<no name>".into()),
-                start.elapsed().as_millis(),
-                details,
-            );
-        }
-        Event::Deleted(user) => {
-            let start = Instant::now();
-            let keep: bool = user
-                .metadata
-                .annotations
-                .as_ref()
-                .and_then(|anno| {
-                    anno.get(KEEP_ANNOTATION).map(|value| {
-                        as_bool(value).unwrap_or_else(|| {
-                            warn!("{} not a bool ({}). Keep user.", value, KEEP_ANNOTATION);
-                            true
-                        })
-                    })
-                })
-                .unwrap_or(false);
-            if !keep {
-                delete_user(&user, client, elastic_admin).await?;
-                info!(
-                    "Deleted user {} with associated role in {}ms.",
-                    user.metadata.name.as_ref().unwrap_or(&"<no name>".into()),
-                    start.elapsed().as_millis()
-                );
-            } else {
-                info!(
-                    "Skipped deletion of user {}.",
-                    user.metadata.name.as_ref().unwrap_or(&"<no name>".into())
-                );
+                let pp = PostParams::default();
+                api.replace_status(
+                    user.name_any().as_str(),
+                    &pp,
+                    serde_json::to_vec(&user).expect("Serde JSON failed to serialize status"),
+                )
+                .await?;
             }
         }
-    }
-    Ok(())
+
+        Ok(Action::requeue(Duration::from_secs(REQUEUE_SECONDS)))
+    };
+    finalizer::finalizer(&api, "ExtElasticOp", user.clone(), rec).await
+}
+
+fn error_policy(
+    _user: Arc<ElasticsearchUser>,
+    _error: &finalizer::Error<OperatorError>,
+    _context: Arc<Context>,
+) -> Action {
+    Action::requeue(Duration::from_secs(REQUEUE_SECONDS))
 }
 
 #[tokio::main]
@@ -266,51 +241,19 @@ async fn main() {
         }
     }
 
-    // Start wating ElasticsearchUser CRDs
-    info!("Waiting for events...");
-    loop {
-        let elastic_users: Api<ElasticsearchUser> = Api::default_namespaced(client.clone());
-        let watch = runtime::watcher(elastic_users, runtime::watcher::Config::default())
-            .try_for_each(|user_event| async {
-                if let Err(e) = handle_user_event(user_event, &client, &elastic_admin).await {
-                    error!("Error while reconciling: {}", e);
-                } else {
-                    debug!("The reconciliation of was successfull.");
-                }
-                Ok(())
-            });
-
-        let sleep = sleep(Duration::from_secs(RESTART_SECONDS));
-
-        enum FirstDone {
-            Watch(Result<(), watcher::Error>),
-            Sleep,
-        }
-
-        let first = select! {
-            watch_res = watch => FirstDone::Watch(watch_res),
-            _ = sleep => FirstDone::Sleep,
-        };
-
-        let watch_result;
-        if let FirstDone::Watch(wr) = first {
-            watch_result = wr;
-        } else {
-            continue;
-        }
-
-        const OLD_SCHEMA: &str =
-            "The stream failed to read CR. Has the CRD been updated and there are old entries?";
-        match watch_result {
-            Err(watcher::Error::InitialListFailed(kube::Error::SerdeError(_))) => {
-                error!("{}", OLD_SCHEMA)
+    let elastic_users: Api<ElasticsearchUser> = Api::default_namespaced(client.clone());
+    let context = Arc::new(Context {
+        elastic: elastic_admin,
+        client,
+    });
+    Controller::new(elastic_users, watcher::Config::default())
+        .shutdown_on_signal()
+        .run(reconcile, error_policy, context)
+        .for_each(|res| async move {
+            match res {
+                Ok(o) => debug!("Reconciled ElasticsearchUser {:?}", o.0.name),
+                Err(e) => debug!("Reconcile ElasticsearchUser failed: {:?}", e),
             }
-            Err(watcher::Error::WatchFailed(kube::Error::SerdeError(_))) => {
-                error!("{}", OLD_SCHEMA)
-            }
-            Err(e) => error!("The watch terminated: {}", e),
-            Ok(_) => error!("Watch terminated gracefully, but should never terminate"),
-        }
-        break;
-    }
+        })
+        .await;
 }

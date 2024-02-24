@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{ser::SerializeSeq, Deserialize, Serialize};
 
 use crate::UserPermissions;
@@ -25,6 +27,23 @@ impl From<UserPermissions> for Privileges {
 impl Default for Privileges {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Display for Privileges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // e.g. Read, Write
+        let arr = [
+            ("read", self.read),
+            ("write", self.write),
+            ("create", self.create),
+        ];
+        let s: Vec<&'static str> = arr
+            .iter()
+            .filter(|(_, cond)| *cond)
+            .map(|(name, _)| *name)
+            .collect();
+        write!(f, "{}", s.join(", "))
     }
 }
 
@@ -56,9 +75,23 @@ pub struct IndexPermission {
     pub privileges: Privileges,
 }
 
+impl Display for IndexPermission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let indices: Vec<String> = self.names.iter().map(ToString::to_string).collect();
+        write!(f, "[{}] on [{}]", self.privileges, indices.join(", "))
+    }
+}
+
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct Role {
     pub indices: Vec<IndexPermission>,
+}
+
+impl Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let indices: Vec<String> = self.indices.iter().map(|x| x.to_string()).collect();
+        write!(f, "{}", indices.join("; "))
+    }
 }
 
 impl Serialize for Privileges {
