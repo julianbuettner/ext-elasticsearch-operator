@@ -2,14 +2,19 @@
 
 This operator automatically manages Elasticsearch roles and users
 for your applications running in Kubernetes.
+So one application has a user to write to index `blogs-*` and `search-*`,
+while the other can only read from `search-articles`.
 It does not manage the Elasticsearch cluster itself,
-but uses the API to provision resources.
-The operator is rather lightweight. Scroll to [notes](#resources) for details.
+but uses the API to provision resources. It therefore requires
+an admin user like `elastic`.
+For performance information and potential footguns see
+[notes and considerations](#notes-and-considerations) for details.
 
 ## Installation of the Operator
-The operator is currently namespaced. Meaning the pod
-has to be in the same namespace as the target CRDs.
-This also means, one Elasticsearch instance per namespace.
+The operator is currently namespaced. Meaning the operator
+has to be in the same namespace as the target CRs.
+This also means, one Elasticsearch instance can be provisioned per namespace.
+
 We will install the operator in the default namespace.
 
 
@@ -64,8 +69,8 @@ ELASTICSEARCH_URL=as-specified-for-the-controller
 ELASTICSEARCH_USERNAME=as-specified-in-the-crd
 ```
 
-## Notes and considerations
-### Genereal Notes and Footguns
+## Notes and Considerations
+### General Notes and Footguns
 - The secrets are deleted, if the ElasticsearchUser are deleted.
 - The operator fetches the role and userdata to check if they match
 the desired state. It also does a login to test the credentials.
@@ -77,12 +82,11 @@ A new secret with a new password is generted. The old one does not work anymore.
 - Already existing secrets will be patched and still deleted if the CR is deleted.
 - Running multiple opertor might result in complications and has no benefits.
 
-
 ### Deletion
 An ElasticsearchUser custom resource can't be deleted if the operator is stopped. To make sure
 no user deletion is missed, the operator uses so called finalizers.
 To force the immediate deletion of an ElasticsearchUser,
-delete the `.metadata.finalizer` entries. Then the object is deletable.
+delete the `.metadata.finalizer` entries manually. Then the object is deletable.
 
 ### Performance and Resources
 In idle or with little usage, the operator uses around 2MiB to 3MiB memory and
