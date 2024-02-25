@@ -65,12 +65,17 @@ ELASTICSEARCH_USERNAME=as-specified-in-the-crd
 ```
 
 ## Notes and considerations
-### Genreal Notes
-The secrets are deleted, if the ElasticsearchUser are deleted.
-The operator fetches the role and userdata to check if they match
+### Genereal Notes and Footguns
+- The secrets are deleted, if the ElasticsearchUser are deleted.
+- The operator fetches the role and userdata to check if they match
 the desired state. It also does a login to test the credentials.
-Only in case if a mismatch, put/post/patch requests are made.
-Currently, all ElasticsearchUsers are checked every 15min.
+Only in case of a mismatch, put/post/patch requests are made.
+- Currently, all ElasticsearchUsers are re-checked every 15min.
+- If the `secretRef` is changed, the old secret is not removed automatically.
+A new secret with a new password is generted. The old one does not work anymore.
+- Manually changing the password of a secret is supported. It is applied immediately.
+- Already existing secrets will be patched and still deleted if the CR is deleted.
+- Running multiple opertor might result in complications and has no benefits.
 
 
 ### Deletion
@@ -79,15 +84,17 @@ no user deletion is missed, the operator uses so called finalizers.
 To force the immediate deletion of an ElasticsearchUser,
 delete the `.metadata.finalizer` entries. Then the object is deletable.
 
-### Resources
+### Performance and Resources
 In idle or with little usage, the operator uses around 2MiB to 3MiB memory and
-between 0 and 1 mCores (milli core).
+between 0 and 1 mCores (milli core). If you use less than a few dozend
+ElasticsearchUsers, there should be no performance concernces.
 
 The operator can handle dozens of patches per second, so performance
 should not be an issue, even for big clusters with lots of applications
-using Elasticsearch. 1K CR updates can be worked
-through in less than a minute with only around 70 mCores load.
+using Elasticsearch. 1K CR updates did need around 40s to be applied
+on my testing one node cluster.
 However, a copy of all custom resources are kept in RAM and are recycled
 a few times an hour, to ensure Elasticsearch is configured correctly.
 So, with every 1K of new ElasticsearchUser objects, around 20MiB more are used.
-
+Also keep in mind, that at every restart of the controller, all CRs are
+reconciled.

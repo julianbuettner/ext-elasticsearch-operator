@@ -3,7 +3,9 @@ use std::{
     str::from_utf8,
 };
 
-use k8s_openapi::{api::core::v1::Secret, apimachinery::pkg::apis::meta::v1::OwnerReference, ByteString};
+use k8s_openapi::{
+    api::core::v1::Secret, apimachinery::pkg::apis::meta::v1::OwnerReference, ByteString,
+};
 use kube::{
     api::{PatchParams, PostParams},
     Api, Client, ResourceExt,
@@ -212,11 +214,7 @@ pub async fn apply_user(
         Some(old_user) => match target_user.delta_string(&old_user) {
             None => (),
             Some(description) => {
-                info!(
-                    "Update user {}: {}",
-                    username,
-                    description,
-                );
+                info!("Update user {}: {}", username, description);
                 elastic.create_user(username, &target_user).await?;
             }
         },
@@ -225,6 +223,7 @@ pub async fn apply_user(
     let user_elastic = elastic.clone_with_new_login(username, password);
     match user_elastic.get_self().await {
         Err(ElasticError::WrongCredentials) => {
+            info!("Update credentials of user {}", username);
             elastic.create_user(username, &target_user).await?;
         }
         Ok(_) => (),
@@ -241,8 +240,12 @@ pub async fn cleanup_user(
 ) -> Result<(), OperatorError> {
     let username = &user.spec.username;
     let role_name = format!("role-{}", username);
-    elastic.delete_user(&username).await?;
-    elastic.delete_role(&role_name).await?;
+    if elastic.delete_user(&username).await? {
+        info!("Deleted user {}", username);
+    }
+    if elastic.delete_role(&role_name).await? {
+        info!("Deleted role {}", username);
+    }
     // Secret gets deleted automatically due to correctly set
     // ownership
     Ok(())

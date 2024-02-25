@@ -8,7 +8,10 @@ use std::{
 use elasticsearch::ElasticAdmin;
 use error::OperatorError;
 use futures_util::StreamExt;
-use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
+use k8s_openapi::{
+    api::core::v1::Secret,
+    apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition,
+};
 use kube::{
     api::{PatchParams, PostParams},
     runtime::{
@@ -25,7 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     env::load_env,
-    reconciliation::{cleanup_user, apply_user},
+    reconciliation::{apply_user, cleanup_user},
 };
 pub mod elasticsearch;
 mod env;
@@ -242,12 +245,14 @@ async fn main() {
     }
 
     let elastic_users: Api<ElasticsearchUser> = Api::default_namespaced(client.clone());
+    let secret_api: Api<Secret> = Api::default_namespaced(client.clone());
     let context = Arc::new(Context {
         elastic: elastic_admin,
         client,
     });
     Controller::new(elastic_users, watcher::Config::default())
         .shutdown_on_signal()
+        .owns(secret_api, watcher::Config::default())
         .run(reconcile, error_policy, context)
         .for_each(|res| async move {
             match res {

@@ -5,7 +5,7 @@ use std::{collections::HashMap, fmt::Display, time::Duration};
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use log::debug;
+use log::trace;
 use reqwest::{
     header::{self, HeaderMap, HeaderValue},
     Client,
@@ -97,7 +97,7 @@ impl ElasticAdmin {
             .json(&role)
             .send()
             .await?;
-        debug!("Status code creating role {}: {}", name, res.status());
+        trace!("Status code creating role {}: {}", name, res.status());
         Ok(())
     }
     pub async fn delete_role(&self, name: impl Display) -> Result<bool> {
@@ -106,7 +106,7 @@ impl ElasticAdmin {
             .delete(self.format_url(format!("/_security/role/{}", name)))
             .send()
             .await?;
-        debug!("Status code of deleting role {}: {}", name, res.status());
+        trace!("Status code of deleting role {}: {}", name, res.status());
         if res.status().as_u16() == 404 {
             return Ok(false);
         }
@@ -139,8 +139,9 @@ impl ElasticAdmin {
             .into());
         }
         let body = res.text().await?;
-        let mut role_map: HashMap<String, Role> = serde_json::from_str(body.as_str())
-            .context(format!("Failed to parse role into role map format: {}", body))?;
+        let mut role_map: HashMap<String, Role> = serde_json::from_str(body.as_str()).context(
+            format!("Failed to parse role into role map format: {}", body),
+        )?;
         let role = role_map
             .remove(name.to_string().as_str())
             .ok_or(ElasticError::Custom(format!(
@@ -157,7 +158,7 @@ impl ElasticAdmin {
             .json(user)
             .send()
             .await?;
-        debug!("Status code creating user {}: {}", username, res.status());
+        trace!("Status code creating user {}: {}", username, res.status());
         if !res.status().is_success() {
             return Err(ElasticError::Custom(format!(
                 "Error creating user {}: {}",
@@ -186,8 +187,9 @@ impl ElasticAdmin {
             .into());
         }
         let body = res.text().await?;
-        let mut user_map: HashMap<String, User> = serde_json::from_str(body.as_str())
-            .context(format!("Failed to parse user into user map format: {}", body))?;
+        let mut user_map: HashMap<String, User> = serde_json::from_str(body.as_str()).context(
+            format!("Failed to parse user into user map format: {}", body),
+        )?;
         let user = user_map
             .remove(username.to_string().as_str())
             .ok_or(ElasticError::Custom(format!(
@@ -203,7 +205,7 @@ impl ElasticAdmin {
             .delete(self.format_url(format!("/_security/user/{}", name)))
             .send()
             .await?;
-        debug!("Status code of deleting user {}: {}", name, res.status());
+        trace!("Status code of deleting user {}: {}", name, res.status());
         if res.status().as_u16() == 404 {
             return Ok(false);
         }
