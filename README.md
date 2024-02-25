@@ -10,7 +10,7 @@ The operator is rather lightweight. Scroll to [notes](#resources) for details.
 The operator is currently namespaced. Meaning the pod
 has to be in the same namespace as the target CRDs.
 This also means, one Elasticsearch instance per namespace.
-We well install the operator in the default namespace.
+We will install the operator in the default namespace.
 
 
 ```bash
@@ -33,22 +33,27 @@ EOF
 
 # Note: check directory for newer versions, I might have forgotten to update
 # the version in the URL.
-PACKAGE_URL="https://github.com/julianbuettner/ext-elasticsearch-operator/raw/main/helm-repo/ext-elasticsearch-operator-1.0.3.tgz"
+PACKAGE_URL="https://github.com/julianbuettner/ext-elasticsearch-operator/raw/main/helm-repo/ext-elasticsearch-operator-1.0.5.tgz"
 helm install eeops "$PACKAGE_URL" --set environmentVariablesSecretRef=eeops-env
 ```
+Use `--set loglevel=debug` to get more info. Generally, only changes are logged
+at info level, while re-checking leaves debug logs.
 
 ## Example Custom Resource
+Make sure the username and secret ref are unique.
+Otherwise values will override constantly.
 ```yaml
-apiVersion: eeops.io/v1
 kind: ElasticsearchUser
+apiVersion: eeops.io/v
 metadata:
   name: demo
+  namespace: default
 spec:
-  permissions: Write  # Read, Write, Create
+  username: server
+  secretRef: server-elastic
   prefixes:
-    - application1-  # Use indices "application1-*"
-  secret_ref: foobar  # Creates this secret
-  username: foome  # ensure the username is unique
+    - blog-articles
+  permissions: Create
 ```
 
 The secret `foobar` should be created within around a second
@@ -60,15 +65,29 @@ ELASTICSEARCH_USERNAME=as-specified-in-the-crd
 ```
 
 ## Notes and considerations
-### Resources
-In idle, the operator uses around 2MiB to 3MiB and
-between 0 and 1 mCores (milli core).
-On load (values per second rather than per minute) these values
-are expected to go up slighly.
+### Genreal Notes
+The secrets are deleted, if the ElasticsearchUser are deleted.
+The operator fetches the role and userdata to check if they match
+the desired state. It also does a login to test the credentials.
+Only in case if a mismatch, put/post/patch requests are made.
+Currently, all ElasticsearchUsers are checked every 15min.
 
-### Performance
-Currently, all operations are performed sequentially.
-If you expect to have many operations / CR updates
-per second for an extended period of time,
-please open an issue. Then I will invest time into performance.
+
+### Deletion
+An ElasticsearchUser custom resource can't be deleted if the operator is stopped. To make sure
+no user deletion is missed, the operator uses so called finalizers.
+To force the immediate deletion of an ElasticsearchUser,
+delete the `.metadata.finalizer` entries. Then the object is deletable.
+
+### Resources
+In idle or with little usage, the operator uses around 2MiB to 3MiB memory and
+between 0 and 1 mCores (milli core).
+
+The operator can handle dozens of patches per second, so performance
+should not be an issue, even for big clusters with lots of applications
+using Elasticsearch. 1K CR updates can be worked
+through in less than a minute with only around 70 mCores load.
+However, a copy of all custom resources are kept in RAM and are recycled
+a few times an hour, to ensure Elasticsearch is configured correctly.
+So, with every 1K of new ElasticsearchUser objects, around 20MiB more are used.
 
