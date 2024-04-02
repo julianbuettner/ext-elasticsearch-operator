@@ -8,6 +8,6 @@ pub enum ElasticError {
     WrongCredentials,
     #[error("The provided login does work, but the user is missing the superuser credentials.")]
     NotSuperuser,
-    #[error("An unexpected error occured: {0}")]
+    #[error("An unexpected error occurred: {0}")]
     Custom(String),
 }

@@ -88,7 +88,7 @@ impl ElasticAdmin {
     }
     /// Create a role. If the role already exists
     /// (identified by name), the permissions are
-    /// overwritten. This way, we don't need a seperate
+    /// overwritten. This way, we don't need a separate
     /// put or patch.
     pub async fn create_role(&self, name: impl Display, role: &Role) -> Result<()> {
         let res = self

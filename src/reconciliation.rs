@@ -37,7 +37,7 @@ fn parse_bytes(b: &[u8]) -> Option<&str> {
     from_utf8(b).ok()
 }
 
-async fn ensure_secret_existance_and_correctness(
+async fn ensure_secret_existence_and_correctness(
     user: &ElasticsearchUser,
     client: &Client,
     elastic: &ElasticAdmin,
@@ -165,8 +165,8 @@ pub async fn apply_user(
     client: &Client,
     elastic: &ElasticAdmin,
 ) -> Result<(), OperatorError> {
-    let secret = ensure_secret_existance_and_correctness(user, client, elastic).await?;
-    // No unwrap should fail here, by ensure_secret_existance_and_correctness
+    let secret = ensure_secret_existence_and_correctness(user, client, elastic).await?;
+    // No unwrap should fail here, by ensure_secret_existence_and_correctness
     let username = from_utf8(&secret.data.as_ref().unwrap().get(SECRET_USER).unwrap().0).unwrap();
     let password = from_utf8(&secret.data.as_ref().unwrap().get(SECRET_PASS).unwrap().0).unwrap();
     // let user_elastic = elastic.clone_with_new_login(username, password);

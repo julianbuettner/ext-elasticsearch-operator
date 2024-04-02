@@ -77,10 +77,10 @@ the desired state. It also does a login to test the credentials.
 Only in case of a mismatch, put/post/patch requests are made.
 - Currently, all ElasticsearchUsers are re-checked every 15min.
 - If the `secretRef` is changed, the old secret is not removed automatically.
-A new secret with a new password is generted. The old one does not work anymore.
+A new secret with a new password is generated. The old one does not work anymore.
 - Manually changing the password of a secret is supported. It is applied immediately.
 - Already existing secrets will be patched and still deleted if the CR is deleted.
-- Running multiple opertor might result in complications and has no benefits.
+- Running multiple operator might result in complications and has no benefits.
 
 ### Deletion
 An ElasticsearchUser custom resource can't be deleted if the operator is stopped. To make sure
