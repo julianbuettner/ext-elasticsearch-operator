@@ -36,10 +36,9 @@ data:
 type: Opaque
 EOF
 
-# Note: check directory for newer versions, I might have forgotten to update
-# the version in the URL.
-PACKAGE_URL="https://github.com/julianbuettner/ext-elasticsearch-operator/raw/main/helm-repo/ext-elasticsearch-operator-1.0.5.tgz"
-helm install eeops "$PACKAGE_URL" --set environmentVariablesSecretRef=eeops-env
+helm repo add eeop "https://github.com/julianbuettner/ext-elasticsearch-operator/raw/main/helm-repo"
+helm repo update
+helm install eeop eeop/eeop --set environmentVariablesSecretRef=eeops-env
 ```
 Use `--set loglevel=debug` to get more info. Generally, only changes are logged
 at info level, while re-checking leaves debug logs.
@@ -80,7 +79,7 @@ Only in case of a mismatch, put/post/patch requests are made.
 A new secret with a new password is generated. The old one does not work anymore.
 - Manually changing the password of a secret is supported. It is applied immediately.
 - Already existing secrets will be patched and still deleted if the CR is deleted.
-- Running multiple operator might result in complications and has no benefits.
+- Running multiple operator might result in complications and has no benefits. There is no mutual exclusion.
 
 ### Deletion
 An ElasticsearchUser custom resource can't be deleted if the operator is stopped. To make sure

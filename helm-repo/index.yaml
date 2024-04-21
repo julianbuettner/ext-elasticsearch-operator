@@ -1,0 +1,104 @@
+apiVersion: v1
+entries:
+  ext-elasticsearch-operator:
+  - apiVersion: v2
+    appVersion: 0.5.0
+    created: "2024-04-21T14:35:52.54661847+02:00"
+    description: Create credentials for applications using Elasticsearch automatiallcy
+    digest: cb3ead25df2e2368a26bbc5177ead32960171b380faf3c33fbcede2fb55ade69
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-1.0.5.tgz
+    version: 1.0.5
+  - apiVersion: v2
+    appVersion: 0.3.0
+    created: "2024-04-21T14:35:52.546275563+02:00"
+    description: Create credentials for applications using Elasticsearch automatiallcy
+    digest: 10f0c901a946f266ec7d30814594945517e17160a705ac3c70daa46e969d2510
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-1.0.4.tgz
+    version: 1.0.4
+  - apiVersion: v2
+    appVersion: 0.2.3
+    created: "2024-04-21T14:35:52.545952058+02:00"
+    description: Create credentials for applications using Elasticsearch automatiallcy
+    digest: 71efa23cfe75bdb083c948a206b8c5588fd21043de4e2f78c2e914dda52a37e6
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-1.0.3.tgz
+    version: 1.0.3
+  - apiVersion: v2
+    appVersion: 0.2.2
+    created: "2024-04-21T14:35:52.545637969+02:00"
+    description: Create credentials for applications using Elasticsearch automatiallcy
+    digest: f329c08f2d5a0994928c3f4f9e5572f6dfa4e46317194bf3a64b51477fc49a6d
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-1.0.2.tgz
+    version: 1.0.2
+  - apiVersion: v2
+    appVersion: 0.2.1
+    created: "2024-04-21T14:35:52.5453181+02:00"
+    description: A Helm chart for Kubernetes
+    digest: 959ff4101a09c7c77388701469f2519a4c1a75f5240f4b694f027b117c44382a
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-1.0.1.tgz
+    version: 1.0.1
+  - apiVersion: v2
+    appVersion: 0.2.0
+    created: "2024-04-21T14:35:52.545003928+02:00"
+    description: A Helm chart for Kubernetes
+    digest: 16dbac7ac4589575fa09a8f91ae78cbf52817b94353005831cda81b7aff84f96
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-1.0.0.tgz
+    version: 1.0.0
+  - apiVersion: v2
+    appVersion: 0.1.2
+    created: "2024-04-21T14:35:52.544674803+02:00"
+    description: A Helm chart for Kubernetes
+    digest: da5b397b70b7b9f4d2dee0f644bb192cef7e069049e478c866ccf8ce5cf3f26a
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-0.1.3.tgz
+    version: 0.1.3
+  - apiVersion: v2
+    appVersion: 0.1.0
+    created: "2024-04-21T14:35:52.544335171+02:00"
+    description: A Helm chart for Kubernetes
+    digest: c31132fc9b5d557f6e3738825f94d903f84842196fbeaba0b49d92656b847ed4
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-0.1.2.tgz
+    version: 0.1.2
+  - apiVersion: v2
+    appVersion: 0.1.0
+    created: "2024-04-21T14:35:52.543893684+02:00"
+    description: A Helm chart for Kubernetes
+    digest: 5bfcdc043187a88a644d2861ab93a6d75281b9091e571ec310d0830a5332981e
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-0.1.1.tgz
+    version: 0.1.1
+  - apiVersion: v2
+    appVersion: 0.1.0
+    created: "2024-04-21T14:35:52.543563614+02:00"
+    description: A Helm chart for Kubernetes
+    digest: 7b7ef2012ac46bdffecbc16eb2b8d311e197d7522fa9190db9e911850100219c
+    name: ext-elasticsearch-operator
+    type: application
+    urls:
+    - ext-elasticsearch-operator-0.1.0.tgz
+    version: 0.1.0
+generated: "2024-04-21T14:35:52.543066489+02:00"
